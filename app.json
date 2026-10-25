@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Volta",
+    "slug": "volta",
+    "version": "1.0.0",
+    "orientation": "landscape",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.pablox365.volta",
+      "infoPlist": {
+        "NSCameraUsageDescription": "Volta usa la cámara para ver personas, coches y bicis delante de ti."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "package": "com.pablox365.volta"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Volta usa tu ubicación para mostrar la velocidad y el mapa."
+        }
+      ],
+      [
+        "expo-sensors",
+        {
+          "motionPermission": "Volta usa el movimiento del móvil para detectar cuándo giras."
+        }
+      ],
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "LANDSCAPE"
+        }
+      ]
+    ]
+  }
+}
