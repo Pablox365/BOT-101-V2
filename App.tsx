@@ -10,6 +10,7 @@ import { Hud } from './src/components/Hud';
 import { MapPanel, type MapStyle } from './src/components/MapPanel';
 import { Scene3D } from './src/components/Scene3D';
 import { VisionCamera, type VisionStatus } from './src/components/VisionCamera';
+import type { RideState } from './src/ride/types';
 import { useRide } from './src/ride/useRide';
 import { DARK, LIGHT, type Palette } from './src/theme';
 
@@ -29,6 +30,7 @@ function Dashboard() {
   const [camera, setCamera] = useState(false);
   const [mapStyle, setMapStyle] = useState<MapStyle>('standard');
   const [vision, setVision] = useState<VisionStatus>({ state: 'off' });
+  const [diag, setDiag] = useState(false);
   const ride = useRide(demo);
   const { state } = ride;
 
@@ -60,6 +62,7 @@ function Dashboard() {
           <Chip palette={palette} label={gpsLabel(state.gps, state.accuracy)} />
           <Chip palette={palette} label={`${(state.distance / 1000).toFixed(2)} km`} />
           <View style={styles.spacer} />
+          <Chip palette={palette} label="Diag" active={diag} onPress={() => setDiag((d) => !d)} />
           <Chip palette={palette} label="Demo" active={demo} onPress={() => setDemo((d) => !d)} />
           <Chip palette={palette} label={cameraLabel(camera, vision)} active={camera} onPress={toggleCamera} />
         </View>
@@ -83,6 +86,7 @@ function Dashboard() {
             onPress={() => setMapStyle((s) => (s === 'standard' ? 'satellite' : 'standard'))}
           />
         </View>
+        {diag && <Diagnostics state={state} vision={vision} camera={camera} />}
         {camera && (
           <View style={[styles.pip, { borderColor: palette.panel }]}>
             <VisionCamera onDetections={ride.onDetections} onStatus={setVision} />
@@ -90,6 +94,34 @@ function Dashboard() {
         )}
       </View>
     </SafeAreaView>
+  );
+}
+
+function fmt(n: number | null | undefined, digits = 0) {
+  return n === null || n === undefined ? '—' : n.toFixed(digits);
+}
+
+/** Raw sensor values, to see what the phone is actually reporting. */
+function Diagnostics({ state, vision, camera }: { state: RideState; vision: VisionStatus; camera: boolean }) {
+  const d = state.debug;
+  const lines = [
+    `GPS: ${d.location} · vel ${fmt(d.rawSpeed, 1)} m/s · rumbo ${fmt(d.course)}° · ±${fmt(state.accuracy)} m`,
+    `Brújula: ${d.compass} · ${fmt(d.heading)}°`,
+    `Movimiento: ${d.motion} · ${d.motionHz} Hz · giro ${fmt(state.yawRate)}°/s`,
+    `Intermitente: ${state.turn ?? 'apagado'} (solo a más de 3,6 km/h)`,
+    `Marcha: ${state.gear}`,
+    `Cámara: ${camera ? vision.state : 'apagada'}${vision.message ? ` · ${vision.message}` : ''}${
+      vision.fps ? ` · ${vision.fps} fps · ${vision.count ?? 0} objetos` : ''
+    }`,
+  ];
+  return (
+    <View style={styles.diag} pointerEvents="none">
+      {lines.map((l) => (
+        <Text key={l.slice(0, 6)} style={styles.diagText}>
+          {l}
+        </Text>
+      ))}
+    </View>
   );
 }
 
@@ -102,7 +134,7 @@ function gpsLabel(gps: string, accuracy: number | null) {
 
 function cameraLabel(on: boolean, vision: VisionStatus) {
   if (!on) return 'Cámara';
-  if (vision.state === 'loading') return 'Cargando IA…';
+  if (vision.state === 'loading') return vision.message ? `IA: ${vision.message}…` : 'Cargando IA…';
   if (vision.state === 'error') return 'Error cámara';
   return vision.fps ? `Cámara · ${vision.fps} fps` : 'Cámara';
 }
@@ -139,6 +171,17 @@ const styles = StyleSheet.create({
   chipShadow: { shadowColor: '#000', shadowOpacity: 0.15, shadowRadius: 4, shadowOffset: { width: 0, height: 1 } },
   chipText: { fontSize: 12, fontWeight: '600' },
   mapControls: { position: 'absolute', top: 10, right: 10 },
+  diag: {
+    position: 'absolute',
+    top: 10,
+    left: 10,
+    right: 90,
+    padding: 8,
+    borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.75)',
+    gap: 2,
+  },
+  diagText: { color: '#fff', fontSize: 11, fontVariant: ['tabular-nums'] },
   pip: {
     position: 'absolute',
     left: 10,

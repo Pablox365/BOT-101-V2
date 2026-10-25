@@ -7,10 +7,10 @@ import { distance, leanForTurn, type LatLon } from '../logic/geo';
 import { ActorTracker, type Actor, type Detection } from '../logic/tracker';
 import { TurnDetector } from '../logic/turnDetector';
 import { DemoRide } from './demo';
-import { INITIAL_RIDE, type RideState } from './types';
+import { INITIAL_RIDE, type RideState, type SensorDebug } from './types';
 
 /** Minimum speed (m/s) for the indicators to react, so wiggling the bars while stopped does nothing. */
-const TURN_MIN_SPEED = 1.2;
+const TURN_MIN_SPEED = 1;
 const UI_REFRESH_MS = 100;
 
 export type Ride = {
@@ -76,10 +76,18 @@ function runSensors(live: RefObject<RideState>) {
   let lastFix: LatLon | null = null;
   let cancelled = false;
   const subs: { remove(): void }[] = [];
+  const keep = (sub: { remove(): void }) => {
+    if (cancelled) sub.remove();
+    else subs.push(sub);
+  };
 
   const update = (patch: Partial<RideState>) => {
     live.current = { ...live.current, ...patch };
   };
+  const debug = (patch: Partial<SensorDebug>) => {
+    live.current = { ...live.current, debug: { ...live.current.debug, ...patch } };
+  };
+  const describe = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
   const pickHeading = () => {
     const s = live.current;
@@ -87,22 +95,20 @@ function runSensors(live: RefObject<RideState>) {
     return gears.forwardHeading(compass) ?? s.heading;
   };
 
-  (async () => {
+  // Each sensor starts on its own, so one failing doesn't silence the others.
+  const startLocation = async () => {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (cancelled) return;
     if (status !== 'granted') {
       update({ gps: 'denied' });
+      debug({ location: `permiso: ${status}`, compass: `permiso: ${status}` });
       return;
     }
+    debug({ location: 'esperando señal' });
 
-    subs.push(
-      await Location.watchHeadingAsync((h) => {
-        compass = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
-        update({ heading: pickHeading() });
-      }),
-    );
+    startCompass().catch((e) => debug({ compass: `error: ${describe(e)}` }));
 
-    subs.push(
+    keep(
       await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.BestForNavigation, timeInterval: 500, distanceInterval: 0 },
         (loc) => {
@@ -121,30 +127,67 @@ function runSensors(live: RefObject<RideState>) {
           }
           update({ speed: v, gear, position, accuracy, trail, distance: trip, gps: 'ok' });
           update({ heading: pickHeading() });
+          debug({ location: 'ok', rawSpeed: speed, course: heading });
         },
+        (reason) => debug({ location: `error: ${reason}` }),
       ),
     );
-    if (cancelled) subs.forEach((s) => s.remove());
-  })().catch(() => update({ gps: 'denied' }));
+  };
 
-  (async () => {
-    const { granted } = await DeviceMotion.requestPermissionsAsync();
-    if (!granted || cancelled) return;
+  const startCompass = async () => {
+    keep(
+      await Location.watchHeadingAsync(
+        (h) => {
+          compass = h.trueHeading >= 0 ? h.trueHeading : h.magHeading;
+          update({ heading: pickHeading() });
+          debug({ compass: 'ok', heading: compass });
+        },
+        (reason) => debug({ compass: `error: ${reason}` }),
+      ),
+    );
+  };
+
+  const startMotion = async () => {
+    const available = await DeviceMotion.isAvailableAsync();
+    if (!available) {
+      debug({ motion: 'no disponible' });
+      return;
+    }
+    const { status } = await DeviceMotion.requestPermissionsAsync();
+    if (cancelled) return;
+    if (status !== 'granted') {
+      debug({ motion: `permiso: ${status}` });
+      return;
+    }
     DeviceMotion.setUpdateInterval(20);
-    subs.push(
+    let samples = 0;
+    let windowStart = Date.now();
+    keep(
       DeviceMotion.addListener((m) => {
-        if (!m.rotationRate || !m.accelerationIncludingGravity) return;
+        if (!m.rotationRate || !m.accelerationIncludingGravity) {
+          debug({ motion: 'sin datos de giro' });
+          return;
+        }
+        const now = Date.now();
+        samples++;
+        if (now - windowStart >= 1000) {
+          debug({ motion: 'ok', motionHz: Math.round((samples * 1000) / (now - windowStart)) });
+          samples = 0;
+          windowStart = now;
+        }
         const g = m.accelerationIncludingGravity;
         // On iOS expo-sensors reports rotationRate.alpha/beta/gamma as the rotation around Z/Y/X.
         const turn = turns.pushMotion(
-          { rx: m.rotationRate.gamma, ry: m.rotationRate.beta, rz: m.rotationRate.alpha, ax: g.x, ay: g.y, az: g.z, t: Date.now() },
+          { rx: m.rotationRate.gamma, ry: m.rotationRate.beta, rz: m.rotationRate.alpha, ax: g.x, ay: g.y, az: g.z, t: now },
           live.current.speed >= TURN_MIN_SPEED,
         );
         update({ turn, yawRate: turns.yawRate, lean: leanForTurn(live.current.speed, turns.yawRate) });
       }),
     );
-    if (cancelled) subs.forEach((s) => s.remove());
-  })().catch(() => {});
+  };
+
+  startLocation().catch((e) => debug({ location: `error: ${describe(e)}` }));
+  startMotion().catch((e) => debug({ motion: `error: ${describe(e)}` }));
 
   return () => {
     cancelled = true;

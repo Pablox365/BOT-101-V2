@@ -4,7 +4,13 @@ import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { Detection } from '../logic/tracker';
 import { VISION_HTML } from '../vision/visionHtml';
 
-export type VisionStatus = { state: 'off' | 'loading' | 'ready' | 'error'; message?: string; fps?: number };
+export type VisionStatus = {
+  state: 'off' | 'loading' | 'ready' | 'error';
+  message?: string;
+  fps?: number;
+  /** Objects seen in the last frame. */
+  count?: number;
+};
 
 type Props = {
   onDetections: (items: Detection[]) => void;
@@ -26,7 +32,7 @@ export function VisionCamera({ onDetections, onStatus }: Props) {
     if (msg.type === 'status' && msg.status) onStatus({ state: msg.status, message: msg.message });
     if (msg.type === 'detections' && msg.items) {
       onDetections(msg.items);
-      onStatus({ state: 'ready', fps: msg.fps });
+      onStatus({ state: 'ready', fps: msg.fps, count: msg.items.length });
     }
   };
 

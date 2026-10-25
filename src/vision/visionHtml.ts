@@ -86,7 +86,11 @@ export const VISION_HTML = String.raw`<!doctype html>
   }
 
   function loop() {
-    if (!running || !model || video.readyState < 2) return;
+    if (!running || !model) return;
+    if (video.readyState < 2) {
+      requestAnimationFrame(loop);
+      return;
+    }
     model.detect(video, 12, MIN_SCORE).then(function (preds) {
       var w = video.videoWidth, h = video.videoHeight;
       var items = [];
@@ -102,16 +106,29 @@ export const VISION_HTML = String.raw`<!doctype html>
     });
   }
 
+  window.addEventListener('error', function (e) {
+    post({ type: 'status', status: 'error', message: 'JS: ' + e.message });
+  });
+
+  function step(message) {
+    post({ type: 'status', status: 'loading', message: message });
+  }
+
   async function start() {
-    post({ type: 'status', status: 'loading' });
+    step('iniciando');
     try {
-      if (!window.tf || !window.cocoSsd) throw new Error('No se pudo descargar el modelo (¿sin internet?)');
+      if (!window.tf || !window.cocoSsd) throw new Error('No se pudo descargar la IA (¿sin internet?)');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Este WebView no da acceso a la cámara (secure context: ' + window.isSecureContext + ')');
+      }
+      step('abriendo cámara');
       var stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: 'environment', width: { ideal: 640 }, height: { ideal: 360 } }
       });
       video.srcObject = stream;
       await video.play();
+      step('cargando modelo');
       await tf.setBackend('webgl').catch(function () {});
       model = await cocoSsd.load({ base: 'lite_mobilenet_v2' });
       post({ type: 'status', status: 'ready' });
